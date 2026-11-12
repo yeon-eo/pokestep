@@ -1,0 +1,6 @@
+{
+  "name": "포케스텝 (PokeStep) - 포켓몬 만보기 & 진화 육성 산책친구",
+  "description": "동물 대신 귀여운 포켓몬과 함께 걷는 만보기! 많이 걸으면 진화(진화 멈춤/변함없는돌 지원), 포핀과 열매 간식 먹이기, 산책 아이템 탐색, 운영자 관리 모드까지 완비된 포켓몬 산책 파트너.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
