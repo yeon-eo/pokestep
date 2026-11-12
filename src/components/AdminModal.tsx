@@ -213,7 +213,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 운영자 모드는 **일반 방문자에게 완전히 숨겨져 있으며**, 오직 관리자님만 접속할 수 있습니다.
               </p>
               <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-slate-700 space-y-1 text-[11px]">
-                <div>• 초기 기본 비밀번호: <span className="font-mono font-bold text-red-600">0000</span></div>
                 <div>• 로그인 후 원하는 비밀번호로 변경할 수 있습니다.</div>
               </div>
             </div>
@@ -236,7 +235,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       setInputPin(e.target.value);
                       setErrorMessage(null);
                     }}
-                    placeholder="초기 PIN: 0000"
+                    placeholder="PIN 입력"
                     className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-300 focus:border-red-500 focus:ring-2 focus:ring-red-200 text-center text-lg font-mono tracking-widest outline-hidden"
                   />
                 </div>
