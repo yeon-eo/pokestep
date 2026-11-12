@@ -60,7 +60,8 @@ export const WalkingScreen: React.FC<WalkingScreenProps> = ({
   const [activeSessionSeconds, setActiveSessionSeconds] = useState<number>(0);
   const [sessionSteps, setSessionSteps] = useState<number>(0);
   const [speechText, setSpeechText] = useState<string>('함께 걸을 준비가 되었어요!');
-  const [speechBubbleVisible, setSpeechBubbleVisible] = useState<boolean>(true);
+  const [speechBubbleVisible, setSpeechBubbleVisible] = useState<boolean>(false);
+  const speechHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [currentEmotion, setCurrentEmotion] = useState<'Normal' | 'Happy' | 'Joyous'>('Normal');
   const [sensorNotice, setSensorNotice] = useState<string | null>(null);
 
@@ -168,15 +169,14 @@ export const WalkingScreen: React.FC<WalkingScreenProps> = ({
     }
   };
 
-  // Random speech update when walking
+  // Clear the speech bubble auto-hide timer on unmount
   useEffect(() => {
-    const voiceData = POKEMON_VOICE_LINES[partner.personality] || POKEMON_VOICE_LINES.warm;
-    const linePool = motionIntensity > 20 ? voiceData.walking : voiceData.base;
-    const randomLine = linePool[Math.floor(Math.random() * linePool.length)];
-    setSpeechText(randomLine);
-  }, [partner.speciesId, motionIntensity]);
+    return () => {
+      if (speechHideTimerRef.current) clearTimeout(speechHideTimerRef.current);
+    };
+  }, []);
 
-  // Tap Pokemon to play voice & animation
+  // Tap Pokemon to play voice & animation (the speech bubble only appears on tap)
   const handleTapPokemon = () => {
     soundManager.playFeed();
     setCurrentEmotion('Joyous');
@@ -186,6 +186,8 @@ export const WalkingScreen: React.FC<WalkingScreenProps> = ({
     const picked = pool[Math.floor(Math.random() * pool.length)];
     setSpeechText(picked);
     setSpeechBubbleVisible(true);
+    if (speechHideTimerRef.current) clearTimeout(speechHideTimerRef.current);
+    speechHideTimerRef.current = setTimeout(() => setSpeechBubbleVisible(false), 4000);
   };
 
   const goalPercent = Math.min(100, Math.round((todayRecord.steps / dailyGoal) * 100));
@@ -326,9 +328,6 @@ export const WalkingScreen: React.FC<WalkingScreenProps> = ({
             <div className="flex items-center justify-center gap-1.5 mt-0.5">
               <span className="text-xs text-slate-500">
                 도감 No.{currentStage.pokedexNo} • {currentStage.category}
-              </span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                전신 움직이는 도트
               </span>
             </div>
           </div>
