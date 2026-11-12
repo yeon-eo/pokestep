@@ -1,4 +1,4 @@
-import { AppState, AdminConfig, PartnerPokemon, DailyStepRecord, FriendTrainer } from '../types/pokemon';
+import { AppState, AdminConfig, PartnerPokemon, DailyStepRecord } from '../types/pokemon';
 import { INITIAL_INVENTORY, GAME_ITEMS } from '../data/itemsData';
 
 const APP_STATE_KEY = 'pokestep_app_state_v3';
@@ -11,44 +11,7 @@ export function generateTrainerCode(): string {
   return `PK-${p1}-${p2}`;
 }
 
-export const DEFAULT_COMMUNITY_FRIENDS: FriendTrainer[] = [
-  {
-    code: 'PK-ASH-0025',
-    name: '지우 (Ash)',
-    partnerName: '피카츄',
-    partnerPokedexNo: 25,
-    partnerStageName: '피카츄',
-    partnerSprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/showdown/25.gif',
-    todaySteps: 7850,
-    totalSteps: 124500,
-    streakDays: 14,
-    isCheeredToday: false,
-  },
-  {
-    code: 'PK-DAWN-0393',
-    name: '빛나 (Dawn)',
-    partnerName: '팽도리',
-    partnerPokedexNo: 393,
-    partnerStageName: '팽도리',
-    partnerSprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/showdown/393.gif',
-    todaySteps: 5420,
-    totalSteps: 89300,
-    streakDays: 8,
-    isCheeredToday: false,
-  },
-  {
-    code: 'PK-CYNTHIA-0445',
-    name: '난천 (Cynthia)',
-    partnerName: '한카리아스',
-    partnerPokedexNo: 445,
-    partnerStageName: '한카리아스',
-    partnerSprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/showdown/445.gif',
-    todaySteps: 11200,
-    totalSteps: 345000,
-    streakDays: 32,
-    isCheeredToday: false,
-  },
-];
+// Friends now come from the Firebase server (see utils/firebase.ts); the old fake NPC friends were removed.
 
 // Default starter Pokemon (Pichu #172)
 const DEFAULT_PARTNER: PartnerPokemon = {
@@ -75,7 +38,7 @@ const DEFAULT_STATE: AppState = {
   isSoundEnabled: true,
   trainerCode: generateTrainerCode(),
   trainerName: '초보 트레이너',
-  friends: DEFAULT_COMMUNITY_FRIENDS,
+  friends: [],
 };
 
 export const DEFAULT_ADMIN_CONFIG: AdminConfig = {
@@ -99,7 +62,7 @@ export function loadAppState(): AppState {
       ...parsed,
       trainerCode: parsed.trainerCode || generateTrainerCode(),
       trainerName: parsed.trainerName || '트레이너',
-      friends: parsed.friends && parsed.friends.length > 0 ? parsed.friends : DEFAULT_COMMUNITY_FRIENDS,
+      friends: [],
       customItems: parsed.customItems || {},
       inventory: { ...INITIAL_INVENTORY, ...parsed.inventory },
     };

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { FriendTrainer, PartnerPokemon, EvolutionStage } from '../types/pokemon';
-import { DEFAULT_COMMUNITY_FRIENDS } from '../utils/storage';
-import { getAnimatedFullBodySpriteUrl } from '../data/pokemonData';
+import { PartnerPokemon, EvolutionStage } from '../types/pokemon';
+import { OnlineTrainer, ReceivedCheer } from '../utils/firebase';
+import { SyncStatus } from '../hooks/useFriendsSync';
 import { soundManager } from '../utils/audio';
 import {
   Users,
@@ -11,24 +11,28 @@ import {
   Heart,
   Sparkles,
   Footprints,
-  Flame,
-  Award,
   Trash2,
   X,
-  Share2,
+  Loader2,
+  WifiOff,
 } from 'lucide-react';
 
 interface FriendsModalProps {
-  myTrainerCode: string;
+  myTrainerCode: string | null;
   myTrainerName: string;
   myPartner: PartnerPokemon | null;
   myCurrentStage: EvolutionStage;
   myTodaySteps: number;
-  myTotalSteps: number;
-  friends: FriendTrainer[];
-  onAddFriend: (friend: FriendTrainer) => void;
-  onRemoveFriend: (code: string) => void;
-  onCheerFriend: (code: string) => void;
+  todayKey: string;
+  syncStatus: SyncStatus;
+  syncError: string | null;
+  friends: OnlineTrainer[];
+  friendCount: number;
+  receivedCheers: ReceivedCheer[];
+  sentCheers: Record<string, string>;
+  onAddFriend: (code: string) => Promise<void>;
+  onRemoveFriend: (friendUid: string) => Promise<void>;
+  onCheerFriend: (friendUid: string) => Promise<void>;
   onUpdateTrainerName: (newName: string) => void;
   onClose: () => void;
 }
@@ -39,8 +43,13 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
   myPartner,
   myCurrentStage,
   myTodaySteps,
-  myTotalSteps,
+  todayKey,
+  syncStatus,
+  syncError,
   friends,
+  friendCount,
+  receivedCheers,
+  sentCheers,
   onAddFriend,
   onRemoveFriend,
   onCheerFriend,
@@ -53,79 +62,74 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isEditingName, setIsEditingName] = useState<boolean>(false);
   const [nameInput, setNameInput] = useState<string>(myTrainerName);
+  const [isAdding, setIsAdding] = useState<boolean>(false);
+  const [busyFriend, setBusyFriend] = useState<string | null>(null);
 
-  // Copy trainer code
+  const isOnline = syncStatus === 'online';
+
+  const flashSuccess = (msg: string) => {
+    setSuccessMsg(msg);
+    setTimeout(() => setSuccessMsg(null), 3000);
+  };
+
   const handleCopyCode = () => {
+    if (!myTrainerCode) return;
     soundManager.playClick();
-    navigator.clipboard.writeText(myTrainerCode);
+    navigator.clipboard.writeText(myTrainerCode).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Add friend by code
-  const handleAddByCode = (e: React.FormEvent) => {
+  const handleAddByCode = async (e: React.FormEvent) => {
     e.preventDefault();
     soundManager.playClick();
     const cleanCode = inputCode.trim().toUpperCase();
-
     if (!cleanCode) {
       setErrorMsg('친구 코드를 입력해주세요.');
       return;
     }
-
-    if (cleanCode === myTrainerCode) {
-      setErrorMsg('자신의 코드는 친구로 추가할 수 없습니다.');
-      return;
-    }
-
-    if (friends.some((f) => f.code === cleanCode)) {
-      setErrorMsg('이미 추가된 친구입니다.');
-      return;
-    }
-
-    // Check if matching any default community trainer
-    const matchedNpc = DEFAULT_COMMUNITY_FRIENDS.find((n) => n.code === cleanCode);
-    if (matchedNpc) {
-      onAddFriend(matchedNpc);
-      setInputCode('');
-      setErrorMsg(null);
-      setSuccessMsg(`새로운 친구 [ ${matchedNpc.name} ]님을 추가했습니다!`);
-      setTimeout(() => setSuccessMsg(null), 3000);
-      return;
-    }
-
-    // Generate random buddy trainer if user adds custom friend code
-    const randomPokemonList = [
-      { name: '꼬부기', no: 7 },
-      { name: '파이리', no: 4 },
-      { name: '이상해씨', no: 1 },
-      { name: '이브이', no: 133 },
-      { name: '루카리오', no: 448 },
-      { name: '개굴닌자', no: 658 },
-    ];
-    const buddy = randomPokemonList[Math.floor(Math.random() * randomPokemonList.length)];
-    const newFriend: FriendTrainer = {
-      code: cleanCode,
-      name: `트레이너_${cleanCode.slice(-4)}`,
-      partnerName: buddy.name,
-      partnerPokedexNo: buddy.no,
-      partnerStageName: buddy.name,
-      partnerSprite: getAnimatedFullBodySpriteUrl(buddy.no),
-      todaySteps: Math.floor(2000 + Math.random() * 6000),
-      totalSteps: Math.floor(10000 + Math.random() * 80000),
-      streakDays: Math.floor(1 + Math.random() * 10),
-      isCheeredToday: false,
-    };
-
-    onAddFriend(newFriend);
-    setInputCode('');
+    setIsAdding(true);
     setErrorMsg(null);
-    setSuccessMsg(`새로운 친구 [ ${newFriend.name} ]님을 추가했습니다! 서로의 걸음수를 공유합니다.`);
-    setTimeout(() => setSuccessMsg(null), 3000);
+    try {
+      await onAddFriend(cleanCode);
+      setInputCode('');
+      flashSuccess('친구를 추가했어요! 서로의 걸음수가 공유됩니다.');
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : '친구를 추가하지 못했어요.');
+    } finally {
+      setIsAdding(false);
+    }
   };
 
-  // Sort friends by today's steps descending
-  const sortedFriends = [...friends].sort((a, b) => b.todaySteps - a.todaySteps);
+  const handleCheer = async (fr: OnlineTrainer) => {
+    soundManager.playFeed();
+    setBusyFriend(fr.uid);
+    try {
+      await onCheerFriend(fr.uid);
+      flashSuccess(`${fr.name}님에게 응원을 보냈어요!`);
+    } catch {
+      setErrorMsg('응원을 보내지 못했어요. 잠시 후 다시 시도해주세요.');
+    } finally {
+      setBusyFriend(null);
+    }
+  };
+
+  const handleRemove = async (fr: OnlineTrainer) => {
+    if (!confirm(`친구 [${fr.name}]님을 목록에서 삭제하시겠습니까?`)) return;
+    setBusyFriend(fr.uid);
+    try {
+      await onRemoveFriend(fr.uid);
+    } catch {
+      setErrorMsg('친구를 삭제하지 못했어요. 잠시 후 다시 시도해주세요.');
+    } finally {
+      setBusyFriend(null);
+    }
+  };
+
+  // A friend's step count only counts for today if they updated it today
+  const stepsToday = (fr: OnlineTrainer) => (fr.todayKey === todayKey ? fr.todaySteps : 0);
+  const sortedFriends = [...friends].sort((a, b) => stepsToday(b) - stepsToday(a));
+  const todaysCheers = receivedCheers.filter((c) => c.date === todayKey);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs animate-fade-in">
@@ -151,10 +155,24 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
               친구 산책 공유 & 친구 코드
             </h3>
             <p className="text-xs text-slate-500">
-              코드로 친구를 추가하고 서로의 파트너와 걸음수를 함께 공유해요!
+              친구 코드를 주고받으면 서로의 파트너와 걸음수를 실시간으로 볼 수 있어요!
             </p>
           </div>
         </div>
+
+        {/* Connection status */}
+        {syncStatus === 'connecting' && (
+          <div className="mb-2 px-3.5 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold flex items-center gap-1.5">
+            <Loader2 size={14} className="animate-spin" />
+            <span>서버에 연결하는 중...</span>
+          </div>
+        )}
+        {syncStatus === 'error' && (
+          <div className="mb-2 px-3.5 py-2 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs font-bold flex items-center gap-1.5">
+            <WifiOff size={14} />
+            <span>{syncError || '서버에 연결하지 못했어요.'}</span>
+          </div>
+        )}
 
         {/* Success Alert */}
         {successMsg && (
@@ -208,12 +226,13 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
               <div>
                 <span className="text-[10px] font-bold text-slate-400 block">내 친구 코드</span>
                 <span className="text-base font-black font-mono tracking-wider text-blue-700">
-                  {myTrainerCode}
+                  {myTrainerCode ?? '발급 중...'}
                 </span>
               </div>
               <button
                 onClick={handleCopyCode}
-                className="py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-all active:scale-95"
+                disabled={!myTrainerCode}
+                className="py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-all active:scale-95"
               >
                 {copied ? <Check size={14} /> : <Copy size={14} />}
                 <span>{copied ? '복사됨!' : '코드 복사'}</span>
@@ -241,6 +260,16 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
             )}
           </div>
 
+          {/* Cheers received today */}
+          {todaysCheers.length > 0 && (
+            <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-bold flex items-start gap-2">
+              <Heart size={14} className="fill-rose-500 text-rose-500 shrink-0 mt-0.5" />
+              <span>
+                오늘 {todaysCheers.map((c) => c.fromName).join(', ')}님이 응원을 보냈어요!
+              </span>
+            </div>
+          )}
+
           {/* 2. ADD FRIEND BY CODE */}
           <form onSubmit={handleAddByCode} className="space-y-2">
             <label className="block text-xs font-bold text-slate-700">
@@ -254,104 +283,116 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                   setInputCode(e.target.value);
                   setErrorMsg(null);
                 }}
-                placeholder="예: PK-ASH-0025 또는 친구 코드"
+                placeholder="예: PK-1234-5678"
                 className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-mono uppercase focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-hidden"
               />
               <button
                 type="submit"
-                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1 shadow-xs transition-colors shrink-0"
+                disabled={!isOnline || isAdding}
+                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white font-bold text-xs flex items-center gap-1 shadow-xs transition-colors shrink-0"
               >
-                <Plus size={16} />
+                {isAdding ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
                 <span>친구 추가</span>
               </button>
             </div>
-            {errorMsg && (
-              <p className="text-xs font-bold text-red-500">{errorMsg}</p>
-            )}
+            {errorMsg && <p className="text-xs font-bold text-red-500">{errorMsg}</p>}
           </form>
 
-          {/* 3. FRIENDS LEADERBOARD & ACTIVITY */}
+          {/* 3. FRIENDS LEADERBOARD */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                 <Footprints size={15} className="text-blue-500" />
-                <span>친구 산책 랭킹 ({friends.length}명)</span>
+                <span>친구 산책 랭킹 ({friendCount}명)</span>
               </span>
               <span className="text-[10px] text-slate-400">오늘 걸음수 순</span>
             </div>
 
-            {sortedFriends.length === 0 ? (
-              <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200 text-slate-400 text-xs">
-                아직 등록된 친구가 없습니다. 친구 코드를 입력하여 추가해보세요!
+            {friendCount === 0 ? (
+              <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200 text-slate-400 text-xs leading-relaxed">
+                아직 등록된 친구가 없어요.
+                <br />
+                내 친구 코드를 친구에게 보내거나, 친구의 코드를 입력해보세요!
+              </div>
+            ) : sortedFriends.length === 0 ? (
+              <div className="p-6 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+                <Loader2 size={14} className="animate-spin" />
+                친구 정보를 불러오는 중...
               </div>
             ) : (
               <div className="space-y-2">
-                {sortedFriends.map((fr, idx) => (
-                  <div
-                    key={fr.code}
-                    className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-2xs hover:border-blue-200 transition-all flex items-center justify-between gap-3"
-                  >
-                    {/* Rank & Friend Partner Sprite */}
-                    <div className="flex items-center gap-3">
-                      <div className="w-5 text-center font-black text-xs text-slate-400">
-                        {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}`}
-                      </div>
-                      <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center shrink-0">
-                        <img
-                          src={fr.partnerSprite}
-                          alt={fr.partnerName}
-                          style={{ imageRendering: 'pixelated' }}
-                          className="w-10 h-10 object-contain drop-shadow-xs pixelated"
-                        />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-extrabold text-sm text-slate-800">{fr.name}</span>
-                          <span className="text-[10px] font-mono text-slate-400">({fr.code})</span>
+                {sortedFriends.map((fr, idx) => {
+                  const cheeredToday = sentCheers[fr.uid] === todayKey;
+                  const busy = busyFriend === fr.uid;
+                  return (
+                    <div
+                      key={fr.uid}
+                      className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-2xs hover:border-blue-200 transition-all flex items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-5 text-center font-black text-xs text-slate-400">
+                          {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}`}
                         </div>
-                        <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
-                          <span>파트너: <strong>{fr.partnerName}</strong></span>
-                          <span>•</span>
-                          <span className="text-orange-500 font-bold">🔥 {fr.streakDays}일 연속</span>
+                        <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center shrink-0">
+                          {fr.partnerSprite && (
+                            <img
+                              src={fr.partnerSprite}
+                              alt={fr.partnerName}
+                              style={{ imageRendering: 'pixelated' }}
+                              className="w-10 h-10 object-contain drop-shadow-xs pixelated"
+                            />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-extrabold text-sm text-slate-800 truncate">{fr.name}</span>
+                            <span className="text-[10px] font-mono text-slate-400">({fr.code})</span>
+                          </div>
+                          <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
+                            <span className="truncate">
+                              파트너: <strong>{fr.partnerName || fr.partnerStageName}</strong>
+                            </span>
+                            {fr.streakDays > 0 && (
+                              <>
+                                <span>•</span>
+                                <span className="text-orange-500 font-bold shrink-0">🔥 {fr.streakDays}일 연속</span>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Step Metrics & Cheer Action */}
-                    <div className="text-right space-y-1">
-                      <div className="font-mono text-sm font-black text-blue-600">
-                        {fr.todaySteps.toLocaleString()} <span className="text-[10px] text-slate-400 font-normal">보</span>
-                      </div>
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => {
-                            soundManager.playFeed();
-                            onCheerFriend(fr.code);
-                          }}
-                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 ${
-                            fr.isCheeredToday
-                              ? 'bg-rose-50 text-rose-600 border border-rose-200'
-                              : 'bg-gradient-to-r from-rose-500 to-pink-500 text-white shadow-2xs hover:from-rose-400 hover:to-pink-400'
-                          }`}
-                        >
-                          <Heart size={11} className={fr.isCheeredToday ? 'fill-rose-500' : ''} />
-                          <span>{fr.isCheeredToday ? '응원완료' : '응원 & 선물'}</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (confirm(`친구 [${fr.name}]님을 목록에서 삭제하시겠습니까?`)) {
-                              onRemoveFriend(fr.code);
-                            }
-                          }}
-                          className="p-1 rounded-lg hover:bg-slate-100 text-slate-300 hover:text-red-500 transition-colors"
-                          title="친구 삭제"
-                        >
-                          <Trash2 size={13} />
-                        </button>
+                      <div className="text-right space-y-1 shrink-0">
+                        <div className="font-mono text-sm font-black text-blue-600">
+                          {stepsToday(fr).toLocaleString()}{' '}
+                          <span className="text-[10px] text-slate-400 font-normal">보</span>
+                        </div>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => handleCheer(fr)}
+                            disabled={cheeredToday || busy || !isOnline}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 ${
+                              cheeredToday
+                                ? 'bg-rose-50 text-rose-600 border border-rose-200'
+                                : 'bg-gradient-to-r from-rose-500 to-pink-500 text-white shadow-2xs hover:from-rose-400 hover:to-pink-400 disabled:opacity-50'
+                            }`}
+                          >
+                            <Heart size={11} className={cheeredToday ? 'fill-rose-500' : ''} />
+                            <span>{cheeredToday ? '응원완료' : '응원하기'}</span>
+                          </button>
+                          <button
+                            onClick={() => handleRemove(fr)}
+                            disabled={busy || !isOnline}
+                            className="p-1 rounded-lg hover:bg-slate-100 text-slate-300 hover:text-red-500 transition-colors"
+                            title="친구 삭제"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

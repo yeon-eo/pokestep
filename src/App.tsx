@@ -6,7 +6,7 @@ import {
   PartnerPokemon,
   PokemonSpecies,
   EvolutionStage,
-  FriendTrainer,
+  DailyStepRecord,
 } from './types/pokemon';
 import { POKEMON_SPECIES_LIST } from './data/pokemonData';
 import { GAME_ITEMS } from './data/itemsData';
@@ -19,6 +19,21 @@ import {
   getTodayKey,
 } from './utils/storage';
 import { soundManager } from './utils/audio';
+import { useFriendsSync } from './hooks/useFriendsSync';
+
+/** Consecutive days with steps, counting back from today (or yesterday if today has none yet). */
+function computeStreakDays(records: Record<string, DailyStepRecord>, todayKey: string): number {
+  const toKey = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const day = new Date();
+  if (!(records[todayKey]?.steps > 0)) day.setDate(day.getDate() - 1);
+  let streak = 0;
+  while (records[toKey(day)]?.steps > 0) {
+    streak++;
+    day.setDate(day.getDate() - 1);
+  }
+  return streak;
+}
 
 import { Navbar } from './components/Navbar';
 import { WalkingScreen } from './components/WalkingScreen';
@@ -356,34 +371,6 @@ export default function App() {
     }));
   };
 
-  // Friend System actions
-  const handleAddFriend = (newFriend: FriendTrainer) => {
-    setAppState((prev) => ({
-      ...prev,
-      friends: [newFriend, ...prev.friends.filter((f) => f.code !== newFriend.code)],
-    }));
-  };
-
-  const handleRemoveFriend = (code: string) => {
-    setAppState((prev) => ({
-      ...prev,
-      friends: prev.friends.filter((f) => f.code !== code),
-    }));
-  };
-
-  const handleCheerFriend = (code: string) => {
-    soundManager.playFeed();
-    setAppState((prev) => {
-      const updatedFriends = prev.friends.map((f) =>
-        f.code === code ? { ...f, isCheeredToday: true, todaySteps: f.todaySteps + 50 } : f
-      );
-      return {
-        ...prev,
-        friends: updatedFriends,
-      };
-    });
-  };
-
   const handleUpdateTrainerName = (newName: string) => {
     setAppState((prev) => ({
       ...prev,
@@ -477,6 +464,24 @@ export default function App() {
     caloriesBurned: 0,
   };
 
+  // Real friends (Firebase): publish my profile, stream friends while the friends screen is open
+  const friendsSync = useFriendsSync({
+    profile: {
+      code: appState.trainerCode,
+      name: appState.trainerName,
+      partnerName: partner?.nickname ?? '',
+      partnerPokedexNo: currentStage.pokedexNo,
+      partnerStageName: currentStage.name,
+      partnerSprite: currentStage.animatedSprite || currentStage.sprite,
+      todaySteps: todayRecord.steps,
+      todayKey,
+      totalSteps: appState.totalSteps,
+      streakDays: computeStreakDays(appState.stepRecords, todayKey),
+    },
+    onCodeAssigned: (code) => setAppState((prev) => ({ ...prev, trainerCode: code })),
+    watchFriends: isFriendsModalOpen,
+  });
+
   return (
     <div
       className="min-h-screen text-slate-900 transition-colors duration-500 font-sans selection:bg-amber-300 selection:text-amber-900"
@@ -561,16 +566,21 @@ export default function App() {
       {/* Friends & Walking Sharing Modal */}
       {isFriendsModalOpen && (
         <FriendsModal
-          myTrainerCode={appState.trainerCode}
+          myTrainerCode={friendsSync.myCode}
           myTrainerName={appState.trainerName}
           myPartner={partner}
           myCurrentStage={currentStage}
           myTodaySteps={todayRecord.steps}
-          myTotalSteps={appState.totalSteps}
-          friends={appState.friends}
-          onAddFriend={handleAddFriend}
-          onRemoveFriend={handleRemoveFriend}
-          onCheerFriend={handleCheerFriend}
+          todayKey={todayKey}
+          syncStatus={friendsSync.status}
+          syncError={friendsSync.errorMessage}
+          friends={friendsSync.friends}
+          friendCount={friendsSync.friendCount}
+          receivedCheers={friendsSync.receivedCheers}
+          sentCheers={friendsSync.sentCheers}
+          onAddFriend={friendsSync.addFriend}
+          onRemoveFriend={friendsSync.removeFriend}
+          onCheerFriend={friendsSync.cheer}
           onUpdateTrainerName={handleUpdateTrainerName}
           onClose={() => setIsFriendsModalOpen(false)}
         />

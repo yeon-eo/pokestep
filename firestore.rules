@@ -1,0 +1,87 @@
+rules_version = '2';
+
+// Security rules for PokeStep friends (paste into Firebase console > Firestore > Rules).
+// Every user signs in anonymously; each user can only write their own data.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isMe(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function ownsCode(code) {
+      return exists(/databases/$(database)/documents/codes/$(code))
+        && get(/databases/$(database)/documents/codes/$(code)).data.uid == request.auth.uid;
+    }
+
+    function validTrainer(d) {
+      return d.keys().hasOnly(['code', 'name', 'partnerName', 'partnerPokedexNo', 'partnerStageName',
+                               'partnerSprite', 'todaySteps', 'todayKey', 'totalSteps', 'streakDays', 'updatedAt'])
+        && d.keys().hasAll(['code', 'name', 'todaySteps', 'todayKey', 'updatedAt'])
+        && d.code is string && d.code.matches('PK-[0-9]{4}-[0-9]{4}') && ownsCode(d.code)
+        && d.name is string && d.name.size() <= 20
+        && d.partnerName is string && d.partnerName.size() <= 30
+        && d.partnerStageName is string && d.partnerStageName.size() <= 30
+        && d.partnerPokedexNo is int && d.partnerPokedexNo >= 0 && d.partnerPokedexNo <= 2000
+        && d.partnerSprite is string && d.partnerSprite.size() <= 300
+        && (d.partnerSprite == '' || d.partnerSprite.matches('https://.*'))
+        && d.todaySteps is int && d.todaySteps >= 0 && d.todaySteps <= 300000
+        && d.todayKey is string && d.todayKey.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && d.totalSteps is int && d.totalSteps >= 0 && d.totalSteps <= 100000000
+        && d.streakDays is int && d.streakDays >= 0 && d.streakDays <= 10000
+        && d.updatedAt == request.time;
+    }
+
+    // Friend code -> owner uid. Codes can be looked up one at a time, never listed,
+    // and can only be claimed (never changed or taken over).
+    match /codes/{code} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && code.matches('PK-[0-9]{4}-[0-9]{4}')
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Public trainer profile: readable one at a time by signed-in users, never listed.
+    match /trainers/{uid} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create, update: if isMe(uid) && validTrainer(request.resource.data);
+      allow delete: if false;
+
+      // Friendship docs exist on both sides; either friend may create or remove them.
+      match /friends/{friendUid} {
+        allow read: if isMe(uid);
+        // update = re-adding an existing friend (same checks)
+        allow create, update: if (isMe(uid) || isMe(friendUid))
+          && uid != friendUid
+          && exists(/databases/$(database)/documents/trainers/$(uid))
+          && exists(/databases/$(database)/documents/trainers/$(friendUid))
+          && request.resource.data.keys().hasOnly(['addedAt'])
+          && request.resource.data.addedAt == request.time;
+        allow delete: if isMe(uid) || isMe(friendUid);
+      }
+
+      // Latest cheer from each friend. Only friends can cheer, only as themselves.
+      match /cheers/{fromUid} {
+        allow read: if isMe(uid) || isMe(fromUid);
+        allow create, update: if isMe(fromUid)
+          && uid != fromUid
+          && exists(/databases/$(database)/documents/trainers/$(uid)/friends/$(fromUid))
+          && request.resource.data.keys().hasOnly(['date', 'fromName', 'at'])
+          && request.resource.data.date is string
+          && request.resource.data.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+          && request.resource.data.fromName is string
+          && request.resource.data.fromName.size() <= 20
+          && request.resource.data.at == request.time;
+        allow delete: if isMe(uid);
+      }
+    }
+  }
+}
