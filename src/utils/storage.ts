@@ -173,8 +173,8 @@ export function setOwnerDevice(isOwner: boolean): void {
 
 export function verifyAdminPin(inputPin: string): boolean {
   const config = loadAdminConfig();
-  // Master emergency pin or configured pin (default 0000 if first time)
-  return config.adminPin === inputPin.trim() || inputPin.trim() === '0000';
+  // Only the configured PIN is accepted (default 0000 until the owner changes it)
+  return config.adminPin === inputPin.trim();
 }
 
 export function resetAdminPin(): void {
