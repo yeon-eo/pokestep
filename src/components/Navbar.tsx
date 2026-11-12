@@ -53,7 +53,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             onClick={handleTitleTap}
             className="group flex items-center gap-2 text-left focus:outline-hidden select-none active:scale-95 transition-transform"
-            title="포케스텝 - 포켓몬과 함께 걷는 산책친구"
+            title="포케스텝"
           >
             <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-red-500 via-rose-500 to-amber-400 p-0.5 shadow-md flex items-center justify-center">
               <div className="w-full h-full rounded-full bg-white flex items-center justify-center relative overflow-hidden">
@@ -71,7 +71,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </span>
                 </span>
               </div>
-              <p className="text-[10px] text-slate-400 -mt-1 font-medium">포켓몬과 함께 걷는 산책친구</p>
             </div>
           </button>
         </div>
