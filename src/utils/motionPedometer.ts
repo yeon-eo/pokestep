@@ -21,9 +21,15 @@ export class MotionPedometer {
   private minStepIntervalMs: number = 330; // Max ~3 steps per second
   private motionIntensity: number = 0;
 
-  // GPS tracking
+  // GPS tracking (fallback only: used when the motion sensor is not delivering data)
   private watchId: number | null = null;
-  private lastCoords: { lat: number; lng: number } | null = null;
+  private lastCoords: { lat: number; lng: number; time: number } | null = null;
+  private lastMotionEventTime: number = 0;
+  private static readonly MOTION_ACTIVE_WINDOW_MS = 5000; // motion sensor counts as "alive" for 5s after its last reading
+  private static readonly GPS_MAX_ACCURACY_M = 20; // ignore fixes less precise than this
+  private static readonly GPS_MIN_MOVE_M = 5; // ignore movement smaller than this (GPS drift)
+  private static readonly GPS_MIN_SPEED_MS = 0.5; // slower than this = standing still / drift
+  private static readonly GPS_MAX_SPEED_MS = 3.5; // faster than this = vehicle, not walking
 
   constructor(onStep: () => void) {
     this.onStepCallback = onStep;
@@ -91,6 +97,8 @@ export class MotionPedometer {
     const acc = event.accelerationIncludingGravity || event.acceleration;
     if (!acc || acc.x === null || acc.y === null || acc.z === null) return;
 
+    this.lastMotionEventTime = Date.now();
+
     const x = acc.x || 0;
     const y = acc.y || 0;
     const z = acc.z || 0;
@@ -118,28 +126,49 @@ export class MotionPedometer {
   };
 
   private handleGeoLocation = (pos: GeolocationPosition) => {
-    const { latitude, longitude, speed } = pos.coords;
+    const { latitude, longitude, accuracy } = pos.coords;
+    const now = pos.timestamp || Date.now();
 
-    // If human walking speed (approx 0.5 m/s to 3.5 m/s = 1.8km/h to 12km/h)
-    if (this.lastCoords) {
-      const distMeters = this.calculateDistanceMeters(
-        this.lastCoords.lat,
-        this.lastCoords.lng,
-        latitude,
-        longitude
-      );
-
-      // If moved between 1.5m and 50m (filtering GPS jumps)
-      if (distMeters >= 1.5 && distMeters < 50) {
-        // Average human stride is ~0.75m
-        const stepsFromDistance = Math.round(distMeters / 0.75);
-        for (let i = 0; i < stepsFromDistance; i++) {
-          this.triggerStep();
-        }
-      }
+    // The accelerometer already counts real steps while it is delivering data.
+    // Counting GPS distance too would count the same walk twice, so GPS only
+    // fills in when the motion sensor is unavailable.
+    const motionSensorActive =
+      Date.now() - this.lastMotionEventTime < MotionPedometer.MOTION_ACTIVE_WINDOW_MS;
+    if (motionSensorActive) {
+      this.lastCoords = null;
+      return;
     }
 
-    this.lastCoords = { lat: latitude, lng: longitude };
+    // Imprecise fixes (common indoors) jump around by tens of meters; skip them.
+    if (accuracy > MotionPedometer.GPS_MAX_ACCURACY_M) return;
+
+    if (!this.lastCoords) {
+      this.lastCoords = { lat: latitude, lng: longitude, time: now };
+      return;
+    }
+
+    const distMeters = this.calculateDistanceMeters(
+      this.lastCoords.lat,
+      this.lastCoords.lng,
+      latitude,
+      longitude
+    );
+
+    // Not far enough from the anchor yet: could be drift, keep accumulating.
+    if (distMeters < Math.max(MotionPedometer.GPS_MIN_MOVE_M, accuracy)) return;
+
+    const elapsedSec = Math.max(1, (now - this.lastCoords.time) / 1000);
+    const speed = distMeters / elapsedSec;
+    this.lastCoords = { lat: latitude, lng: longitude, time: now };
+
+    // Only walking-speed movement counts (too slow = slow drift, too fast = vehicle).
+    if (speed < MotionPedometer.GPS_MIN_SPEED_MS || speed > MotionPedometer.GPS_MAX_SPEED_MS) return;
+
+    // Average human stride is ~0.75m
+    const stepsFromDistance = Math.round(distMeters / 0.75);
+    for (let i = 0; i < stepsFromDistance; i++) {
+      this.triggerStep();
+    }
   };
 
   private calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
